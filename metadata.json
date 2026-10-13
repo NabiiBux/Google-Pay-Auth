@@ -1,0 +1,6 @@
+{
+  "name": "GNB Mentor Pay",
+  "description": "Secure payment gateway portal for pay.gnbmentor.com integrated with WooCommerce, Google Pay, and Stripe.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
