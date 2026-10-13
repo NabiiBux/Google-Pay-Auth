@@ -11,9 +11,22 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distPath = path.resolve(__dirname, 'dist');
-const hasDist = fs.existsSync(distPath);
-const isProd = process.env.NODE_ENV === 'production' || hasDist;
-const PORT = Number(process.env.PORT) || 3000;
+const isProd = process.env.NODE_ENV === 'production';
+
+function getPort(): number {
+  const portArgIdx = process.argv.indexOf('--port');
+  if (portArgIdx !== -1 && process.argv[portArgIdx + 1]) {
+    return Number(process.argv[portArgIdx + 1]);
+  }
+  if (process.env.APP_PORT) {
+    return Number(process.env.APP_PORT);
+  }
+  if (process.env.PORT && process.env.PORT !== '8080') {
+    return Number(process.env.PORT);
+  }
+  return 3000;
+}
+const PORT = getPort();
 
 const app = express();
 

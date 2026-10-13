@@ -150,7 +150,7 @@ export const SuccessState: React.FC<SuccessStateProps> = ({
         <div className="mt-6 flex flex-col gap-3 justify-center">
           {/* High Priority Google Workspace Onboarding Button */}
           <a
-            href={`https://portal.gnbmentor.com/?order_id=${encodeURIComponent(order.order_id)}&customer_email=${encodeURIComponent(order.customer_email || '')}&amount=${order.amount}&currency=${order.currency}&order_key=${encodeURIComponent(order.order_key || '')}&status=paid`}
+            href={`https://portal.gnbmentor.com/register?email=${encodeURIComponent(order.customer_email || '')}&order=${encodeURIComponent(order.order_id)}&status=paid${order.customer_name ? `&name=${encodeURIComponent(order.customer_name)}` : ''}&ref=pay_portal`}
             className="inline-flex items-center justify-center gap-2 px-6 py-4 text-sm font-extrabold text-white bg-blue-600 hover:bg-blue-700 rounded-2xl transition-all shadow-lg hover:shadow-blue-500/20 cursor-pointer"
           >
             <span>Set Up Google Workspace Users Now</span>
