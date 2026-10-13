@@ -5,6 +5,10 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import Stripe from 'stripe';
+import {
+  checkDomainAvailability,
+  registerDomainWithNamecheap,
+} from './src/services/namecheapService.js';
 
 dotenv.config();
 
@@ -39,6 +43,17 @@ app.use(
   })
 );
 app.use(express.urlencoded({ extended: true }));
+
+// Enable CORS for gnbmentor.com, portal.gnbmentor.com, and local clients
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 // Initialize Stripe instance if secret key is present
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
@@ -268,6 +283,115 @@ app.get('/api/config', (_req, res) => {
     googlePayEnv: GOOGLE_PAY_ENV,
     portalUrl: PORTAL_URL,
   });
+});
+
+/**
+ * GET /api/domains/search
+ * Real-time domain search via Namecheap Reseller API
+ */
+app.get('/api/domains/search', async (req, res) => {
+  try {
+    const rawQuery = String(req.query.domain || req.query.q || '').trim();
+    if (!rawQuery) {
+      return res.status(400).json({ error: 'Domain parameter is required' });
+    }
+
+    const result = await checkDomainAvailability(rawQuery);
+    const usdPrice = parseFloat(result.price) || 12.98;
+    const pkrPrice = Math.round(usdPrice * 280);
+
+    return res.json({
+      success: true,
+      domain: result.domain,
+      available: result.available,
+      price: result.price,
+      currency: result.currency || 'USD',
+      pkrPrice,
+      isPremium: result.isPremium,
+      message:
+        result.message ||
+        (result.available
+          ? 'Domain is available for registration'
+          : 'Domain is already registered'),
+      checkoutUrl: `${WC_STORE_URL}/checkout/?add-to-cart=domain&domain=${encodeURIComponent(result.domain)}`,
+    });
+  } catch (error: any) {
+    console.error('[DOMAIN-SEARCH-ERROR]', error);
+    return res.status(500).json({
+      error: 'Failed to search domain availability',
+      details: error.message,
+    });
+  }
+});
+
+/**
+ * GET /api/domains/pricing
+ * Standard TLD pricing table
+ */
+app.get('/api/domains/pricing', (_req, res) => {
+  const tldPricing = [
+    { tld: '.com', priceUsd: 10.98, pricePkr: 3080, popular: true },
+    { tld: '.net', priceUsd: 12.98, pricePkr: 3640, popular: false },
+    { tld: '.org', priceUsd: 11.98, pricePkr: 3360, popular: false },
+    { tld: '.co', priceUsd: 24.98, pricePkr: 7000, popular: false },
+    { tld: '.io', priceUsd: 38.98, pricePkr: 10920, popular: true },
+    { tld: '.store', priceUsd: 4.98, pricePkr: 1400, popular: true },
+    { tld: '.tech', priceUsd: 4.98, pricePkr: 1400, popular: false },
+    { tld: '.shop', priceUsd: 3.98, pricePkr: 1120, popular: true },
+    { tld: '.ai', priceUsd: 69.98, pricePkr: 19600, popular: true },
+    { tld: '.pk', priceUsd: 14.5, pricePkr: 4060, popular: true },
+  ];
+  return res.json({ success: true, pricing: tldPricing });
+});
+
+/**
+ * POST /api/domains/register-order
+ * Automatically provision domain on Namecheap when order is paid
+ */
+app.post('/api/domains/register-order', async (req, res) => {
+  try {
+    const { order_id, domain, registrant } = req.body;
+
+    if (!order_id || !domain) {
+      return res.status(400).json({ error: 'Missing order_id or domain' });
+    }
+
+    console.log(`[DOMAIN-REGISTRATION] Processing order #${order_id} for ${domain}`);
+
+    const regResult = await registerDomainWithNamecheap(domain, {
+      firstName: registrant?.firstName || 'GNB',
+      lastName: registrant?.lastName || 'Client',
+      email: registrant?.email || 'admin@gnbmentor.com',
+      phone: registrant?.phone || '+92.3023167793',
+    });
+
+    // Notify portal.gnbmentor.com
+    try {
+      await fetch(`${PORTAL_URL}/api/domains/register-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id,
+          domain,
+          registrant,
+          namecheapResult: regResult,
+        }),
+      });
+    } catch (portalErr: any) {
+      console.warn('[PORTAL-SYNC] Note: Portal background sync:', portalErr.message);
+    }
+
+    return res.json({
+      success: regResult.success,
+      order_id,
+      domain,
+      txId: regResult.txId,
+      message: regResult.message,
+    });
+  } catch (err: any) {
+    console.error('Error in domain registration order:', err);
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 /**

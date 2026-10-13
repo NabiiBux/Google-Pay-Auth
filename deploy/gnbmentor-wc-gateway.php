@@ -370,3 +370,178 @@ function gnbmentor_pay_bootstrap_plugin() {
         return $gateways;
     });
 }
+
+/**
+ * 4. Domain Search Shortcode: [gnb_domain_search]
+ * Provides real-time Namecheap availability check and 1-click WooCommerce cart checkout.
+ */
+add_shortcode('gnb_domain_search', 'gnbmentor_render_domain_search_widget');
+
+function gnbmentor_render_domain_search_widget() {
+    ob_start();
+    ?>
+    <div id="gnbDomainSearchWidget" class="gnb-domain-search-box" style="margin: 28px 0; padding: 32px 24px; background: linear-gradient(135deg, #090d16 0%, #151f32 100%); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 20px; box-shadow: 0 16px 40px -10px rgba(15, 23, 42, 0.45); color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center;">
+        <span style="display: inline-block; padding: 4px 14px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 20px; color: #60a5fa; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px;">
+            Instant Domain Registration
+        </span>
+        <h2 style="margin: 0 0 8px; font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.02em;">
+            Find Your Perfect Domain Name
+        </h2>
+        <p style="margin: 0 auto 24px; font-size: 14px; color: #94a3b8; max-width: 480px; line-height: 1.5;">
+            Search real-time availability powered by Namecheap Reseller API. Register instantly or bundle with Google Workspace.
+        </p>
+
+        <!-- Search Bar -->
+        <div style="display: flex; max-width: 580px; margin: 0 auto 16px; background: rgba(255, 255, 255, 0.06); border: 2px solid rgba(59, 130, 246, 0.4); border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);">
+            <input type="text" id="gnbDomainInput" placeholder="Enter your domain (e.g. mycompany.com)" style="flex: 1; padding: 16px 20px; background: transparent; border: none; color: #ffffff; font-size: 16px; outline: none;" />
+            <button id="gnbDomainSearchBtn" style="padding: 16px 28px; background: #2563eb; color: #ffffff; font-weight: 700; border: none; font-size: 15px; cursor: pointer; transition: background 0.15s ease;">
+                Search
+            </button>
+        </div>
+
+        <!-- Quick TLD Chips -->
+        <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-bottom: 24px;">
+            <button class="gnb-tld-chip" data-tld="com" style="padding: 6px 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; color: #cbd5e1; font-size: 12px; cursor: pointer;">.com ($10.98)</button>
+            <button class="gnb-tld-chip" data-tld="net" style="padding: 6px 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; color: #cbd5e1; font-size: 12px; cursor: pointer;">.net ($12.98)</button>
+            <button class="gnb-tld-chip" data-tld="org" style="padding: 6px 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; color: #cbd5e1; font-size: 12px; cursor: pointer;">.org ($11.98)</button>
+            <button class="gnb-tld-chip" data-tld="store" style="padding: 6px 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; color: #cbd5e1; font-size: 12px; cursor: pointer;">.store ($4.98)</button>
+            <button class="gnb-tld-chip" data-tld="pk" style="padding: 6px 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; color: #cbd5e1; font-size: 12px; cursor: pointer;">.pk ($14.50)</button>
+            <button class="gnb-tld-chip" data-tld="io" style="padding: 6px 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; color: #cbd5e1; font-size: 12px; cursor: pointer;">.io ($38.98)</button>
+        </div>
+
+        <!-- Result Card Container -->
+        <div id="gnbDomainResultBox" style="display: none; max-width: 580px; margin: 0 auto; padding: 20px; border-radius: 16px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); text-align: left;">
+        </div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var input = document.getElementById('gnbDomainInput');
+        var btn = document.getElementById('gnbDomainSearchBtn');
+        var resBox = document.getElementById('gnbDomainResultBox');
+        var chips = document.querySelectorAll('.gnb-tld-chip');
+
+        chips.forEach(function(chip) {
+            chip.addEventListener('click', function() {
+                var tld = this.getAttribute('data-tld');
+                var val = input.value.trim().split('.')[0] || 'mycompany';
+                input.value = val + '.' + tld;
+                doDomainSearch();
+            });
+        });
+
+        btn.addEventListener('click', doDomainSearch);
+        input.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') doDomainSearch();
+        });
+
+        function doDomainSearch() {
+            var val = input.value.trim();
+            if (!val) return;
+
+            resBox.style.display = 'block';
+            resBox.innerHTML = '<div style="text-align: center; color: #94a3b8; padding: 12px;">Checking Namecheap live registry...</div>';
+
+            fetch('https://pay.gnbmentor.com/api/domains/search?domain=' + encodeURIComponent(val))
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    if (data.available) {
+                        resBox.innerHTML = 
+                            '<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">' +
+                                '<div>' +
+                                    '<span style="display: inline-block; padding: 2px 8px; background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.35); border-radius: 12px; color: #4ade80; font-size: 11px; font-weight: 700; margin-bottom: 4px;">✓ AVAILABLE</span>' +
+                                    '<h3 style="margin: 0; font-size: 18px; color: #ffffff;">' + data.domain + '</h3>' +
+                                    '<p style="margin: 4px 0 0; font-size: 13px; color: #94a3b8;">PKR ' + data.pkrPrice + ' / year ($' + data.price + ')</p>' +
+                                '</div>' +
+                                '<div style="display: flex; gap: 8px;">' +
+                                    '<a href="/checkout/?add-domain=' + encodeURIComponent(data.domain) + '&price=' + data.price + '" style="display: inline-flex; align-items: center; padding: 10px 18px; background: #2563eb; color: #ffffff; text-decoration: none; font-size: 13px; font-weight: 700; border-radius: 10px;">Buy Domain</a>' +
+                                    '<a href="https://portal.gnbmentor.com/register?domain=' + encodeURIComponent(data.domain) + '" style="display: inline-flex; align-items: center; padding: 10px 14px; background: rgba(255,255,255,0.08); color: #cbd5e1; text-decoration: none; font-size: 13px; font-weight: 600; border-radius: 10px;">+ Google Workspace</a>' +
+                                '</div>' +
+                            '</div>';
+                    } else {
+                        resBox.innerHTML = 
+                            '<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">' +
+                                '<div>' +
+                                    '<span style="display: inline-block; padding: 2px 8px; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.35); border-radius: 12px; color: #f87171; font-size: 11px; font-weight: 700; margin-bottom: 4px;">TAKEN</span>' +
+                                    '<h3 style="margin: 0; font-size: 18px; color: #ffffff;">' + data.domain + '</h3>' +
+                                    '<p style="margin: 4px 0 0; font-size: 13px; color: #94a3b8;">Already registered. Own it? Connect it to Workspace.</p>' +
+                                '</div>' +
+                                '<div>' +
+                                    '<a href="https://portal.gnbmentor.com/register?domain=' + encodeURIComponent(data.domain) + '" style="display: inline-flex; align-items: center; padding: 10px 16px; background: #2563eb; color: #ffffff; text-decoration: none; font-size: 13px; font-weight: 700; border-radius: 10px;">Connect to Workspace &rarr;</a>' +
+                                '</div>' +
+                            '</div>';
+                    }
+                })
+                .catch(function() {
+                    resBox.innerHTML = '<div style="color: #f87171; text-align: center; padding: 10px;">Registry query timed out. Please try again.</div>';
+                });
+        }
+    });
+    </script>
+    <?php
+    return ob_get_clean();
+}
+
+/**
+ * 5. Handle WooCommerce Cart addition for domain items with dynamic pricing
+ */
+add_action('init', 'gnbmentor_handle_add_domain_to_cart');
+
+function gnbmentor_handle_add_domain_to_cart() {
+    if (isset($_GET['add-domain']) && !empty($_GET['add-domain'])) {
+        $domain = sanitize_text_field($_GET['add-domain']);
+        $price  = isset($_GET['price']) ? floatval($_GET['price']) : 12.98;
+
+        if (function_exists('WC') && WC()->cart) {
+            // Store domain in session
+            WC()->session->set('gnb_custom_domain', array(
+                'domain' => $domain,
+                'price'  => $price,
+            ));
+        }
+    }
+}
+
+/**
+ * 6. Automated Namecheap Provisioning Webhook upon Payment Completion
+ */
+add_action('woocommerce_order_status_completed', 'gnbmentor_trigger_domain_registration');
+add_action('woocommerce_order_status_processing', 'gnbmentor_trigger_domain_registration');
+
+function gnbmentor_trigger_domain_registration($order_id) {
+    if (!$order_id || !function_exists('wc_get_order')) return;
+    $order = wc_get_order($order_id);
+    if (!$order) return;
+
+    $domain = $order->get_meta('_gnb_registered_domain');
+    if (empty($domain)) {
+        // Check order notes or items
+        foreach ($order->get_items() as $item) {
+            $item_domain = $item->get_meta('Domain');
+            if (!empty($item_domain)) {
+                $domain = $item_domain;
+                break;
+            }
+        }
+    }
+
+    if (!empty($domain)) {
+        // Dispatch to pay.gnbmentor.com Namecheap provisioning worker
+        wp_remote_post('https://pay.gnbmentor.com/api/domains/register-order', array(
+            'method'    => 'POST',
+            'blocking'  => false,
+            'headers'   => array('Content-Type' => 'application/json'),
+            'body'      => wp_json_encode(array(
+                'order_id'   => $order_id,
+                'domain'     => $domain,
+                'registrant' => array(
+                    'firstName' => $order->get_billing_first_name(),
+                    'lastName'  => $order->get_billing_last_name(),
+                    'email'     => $order->get_billing_email(),
+                    'phone'     => $order->get_billing_phone(),
+                ),
+            )),
+        ));
+    }
+}
+
