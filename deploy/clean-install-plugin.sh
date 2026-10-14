@@ -23,33 +23,27 @@ fi
 
 echo "Found WordPress plugins at: $WP_PLUGINS"
 
-# 2. Identify web server process owner (nginx, apache, php-fpm, or nobody)
-WEB_USER=$(ps aux | grep -E 'php-fpm|nginx|httpd|apache2' | grep -v root | awk '{print $1}' | head -n 1 || true)
-if [ -z "$WEB_USER" ]; then
-    WEB_USER="nginx"
-fi
-echo "Web server owner detected: $WEB_USER"
-
-# 3. Clean out old root-owned files causing permission and duplication errors
-echo "Removing old locked files..."
+# 2. Force remove the stuck/locked files that WordPress couldn't delete
+echo "Removing locked/stuck files..."
 rm -rf "$WP_PLUGINS"/gnbmentor-pay*
 rm -f "$WP_PLUGINS"/gnbmentor-*.php
 
-# 4. Extract the clean single-file v2.5.0 plugin
+# 3. Extract the clean single-file v2.5.0 plugin
 echo "Extracting clean v2.5.0 plugin..."
 unzip -o /var/www/pay.gnbmentor.com/public/gnbmentor-pay.zip -d "$WP_PLUGINS"
 
-# 5. Fix permissions completely so WordPress can manage it seamlessly
-echo "Setting permissions for $WEB_USER..."
-chown -R "$WEB_USER":"$WEB_USER" "$WP_PLUGINS"/gnbmentor-pay 2>/dev/null || true
-chmod -R 755 "$WP_PLUGINS"/gnbmentor-pay
-find "$WP_PLUGINS"/gnbmentor-pay -type f -exec chmod 644 {} +
+# 4. Copy exact owner and group from parent plugins folder
+echo "Inheriting exact WordPress filesystem ownership..."
+chown -R --reference="$WP_PLUGINS" "$WP_PLUGINS"/gnbmentor-pay
+chmod -R 775 "$WP_PLUGINS"/gnbmentor-pay
+find "$WP_PLUGINS"/gnbmentor-pay -type f -exec chmod 664 {} +
 
-# 6. Try WP-CLI activation if installed
+# 5. Try WP-CLI activation if installed
 WP_DIR=$(dirname $(dirname "$WP_PLUGINS"))
 if command -v wp &> /dev/null; then
-    wp plugin activate gnbmentor-pay --path="$WP_DIR" --allow-root 2>/dev/null || true
+    echo "Activating plugin via WP-CLI..."
+    wp plugin activate gnbmentor-pay --path="$WP_DIR" --allow-root || true
 fi
 
 echo "=== SUCCESS! ==="
-echo "Plugin is installed with correct permissions in $WP_PLUGINS/gnbmentor-pay."
+echo "Plugin is cleanly installed with full permissions in $WP_PLUGINS/gnbmentor-pay."
