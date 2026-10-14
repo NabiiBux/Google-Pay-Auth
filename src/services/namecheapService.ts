@@ -99,6 +99,11 @@ export async function registerDomainWithNamecheap(
     lastName: string;
     email: string;
     phone?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    postcode?: string;
+    country?: string;
   }
 ): Promise<{ success: boolean; domain: string; txId: string; message: string }> {
   const cleanDomain = domain.trim().toLowerCase();
@@ -106,6 +111,13 @@ export async function registerDomainWithNamecheap(
   if (NAMECHEAP_API_USER && NAMECHEAP_API_KEY) {
     try {
       const url = new URL(NAMECHEAP_ENDPOINT);
+      const address = registrant.address || 'GNB Mentor Suite 100';
+      const city = registrant.city || 'Karachi';
+      const state = registrant.state || 'Sindh';
+      const postcode = registrant.postcode || '75500';
+      const country = registrant.country || 'PK';
+      const phone = registrant.phone || '+92.3023167793';
+
       const params: Record<string, string> = {
         ApiUser: NAMECHEAP_API_USER,
         ApiKey: NAMECHEAP_API_KEY,
@@ -116,23 +128,23 @@ export async function registerDomainWithNamecheap(
         Years: '1',
         // Registrant Details
         RegistrantFirstName: registrant.firstName || 'GNB',
-        RegistrantLastName: registrant.lastName || 'Client',
-        RegistrantAddress1: 'Main Street 100',
-        RegistrantCity: 'New York',
-        RegistrantStateProvince: 'NY',
-        RegistrantPostalCode: '10001',
-        RegistrantCountry: 'US',
-        RegistrantPhone: registrant.phone || '+1.5555555555',
+        RegistrantLastName: registrant.lastName || 'Customer',
+        RegistrantAddress1: address,
+        RegistrantCity: city,
+        RegistrantStateProvince: state,
+        RegistrantPostalCode: postcode,
+        RegistrantCountry: country,
+        RegistrantPhone: phone,
         RegistrantEmailAddress: registrant.email,
         // Tech & Admin match Registrant
         TechFirstName: registrant.firstName || 'GNB',
-        TechLastName: registrant.lastName || 'Client',
-        TechAddress1: 'Main Street 100',
-        TechCity: 'New York',
-        TechStateProvince: 'NY',
-        TechPostalCode: '10001',
-        TechCountry: 'US',
-        TechPhone: registrant.phone || '+1.5555555555',
+        TechLastName: registrant.lastName || 'Customer',
+        TechAddress1: address,
+        TechCity: city,
+        TechStateProvince: state,
+        TechPostalCode: postcode,
+        TechCountry: country,
+        TechPhone: phone,
         TechEmailAddress: registrant.email,
       };
 
