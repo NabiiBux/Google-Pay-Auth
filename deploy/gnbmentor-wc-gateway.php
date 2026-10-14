@@ -414,14 +414,25 @@ function gnbmentor_get_or_create_domain_product() {
 add_action('template_redirect', 'gnbmentor_handle_1click_domain_checkout');
 
 function gnbmentor_handle_1click_domain_checkout() {
+    $domain = '';
+    $price  = 10.98;
+
     if (isset($_GET['gnb_buy_domain']) && !empty($_GET['gnb_buy_domain'])) {
         $domain = sanitize_text_field($_GET['gnb_buy_domain']);
-        $price  = isset($_GET['price']) ? floatval($_GET['price']) : 10.98;
+    } elseif (isset($_GET['add-domain']) && !empty($_GET['add-domain'])) {
+        $domain = sanitize_text_field($_GET['add-domain']);
+    } elseif (isset($_GET['add-to-cart']) && $_GET['add-to-cart'] === 'domain' && isset($_GET['domain'])) {
+        $domain = sanitize_text_field($_GET['domain']);
+    }
 
+    if (isset($_GET['price']) && is_numeric($_GET['price'])) {
+        $price = floatval($_GET['price']);
+    }
+
+    if (!empty($domain)) {
         if (function_exists('WC') && WC()->cart) {
             $product_id = gnbmentor_get_or_create_domain_product();
             if ($product_id) {
-                // Clear cart to ensure instant single-item or add to existing
                 WC()->cart->empty_cart();
 
                 $cart_item_data = array(
@@ -431,9 +442,11 @@ function gnbmentor_handle_1click_domain_checkout() {
 
                 WC()->cart->add_to_cart($product_id, 1, 0, array(), $cart_item_data);
 
-                // Redirect straight to WooCommerce checkout page in 1 click
-                wp_safe_redirect(wc_get_checkout_url());
-                exit;
+                // If not already on checkout, redirect to checkout
+                if (function_exists('is_checkout') && !is_checkout()) {
+                    wp_safe_redirect(wc_get_checkout_url());
+                    exit;
+                }
             }
         }
     }

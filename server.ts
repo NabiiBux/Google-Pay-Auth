@@ -313,7 +313,7 @@ app.get('/api/domains/search', async (req, res) => {
         (result.available
           ? 'Domain is available for registration'
           : 'Domain is already registered'),
-      checkoutUrl: `${WC_STORE_URL}/checkout/?add-to-cart=domain&domain=${encodeURIComponent(result.domain)}`,
+      checkoutUrl: `${WC_STORE_URL}/?gnb_buy_domain=${encodeURIComponent(result.domain)}&price=${encodeURIComponent(result.price)}`,
     });
   } catch (error: any) {
     console.error('[DOMAIN-SEARCH-ERROR]', error);
