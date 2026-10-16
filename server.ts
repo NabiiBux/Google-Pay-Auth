@@ -302,11 +302,12 @@ app.get('/api/config', (_req, res) => {
  * GET /api/domains/search
  * Real-time domain search via Namecheap Reseller API
  */
-app.get('/api/domains/search', async (req, res) => {
+app.get(['/api/domains/search', '/api/domains/search/'], async (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
   try {
     const rawQuery = String(req.query.domain || req.query.q || '').trim();
     if (!rawQuery) {
-      return res.status(400).json({ error: 'Domain parameter is required' });
+      return res.status(400).json({ success: false, error: 'Domain parameter is required' });
     }
 
     const cleanDomain = rawQuery.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
@@ -348,7 +349,7 @@ app.get('/api/domains/search', async (req, res) => {
       price: formattedUsdPrice,
       currency: result.currency || 'USD',
       pkrPrice,
-      isPremium: result.isPremium,
+      isPremium: Boolean(result.isPremium),
       message:
         result.message ||
         (result.available
@@ -359,6 +360,7 @@ app.get('/api/domains/search', async (req, res) => {
   } catch (error: any) {
     console.error('[DOMAIN-SEARCH-ERROR]', error);
     return res.status(500).json({
+      success: false,
       error: 'Failed to search domain availability',
       details: error.message,
     });
@@ -868,6 +870,25 @@ app.post('/api/webhook/stripe', async (req: any, res) => {
   }
 
   return res.json({ received: true });
+});
+
+// Explicit API 404 Handler - Guarantees that no /api/* request ever falls through to HTML SPA
+app.all('/api/*', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  return res.status(404).json({
+    success: false,
+    error: `API endpoint '${req.method} ${req.originalUrl}' not found`,
+  });
+});
+
+// API Error Middleware
+app.use('/api', (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[API-UNHANDLED-ERROR]', err);
+  res.setHeader('Content-Type', 'application/json');
+  return res.status(500).json({
+    success: false,
+    error: err.message || 'Internal server error in API service',
+  });
 });
 
 // -------------------------------------------------------------

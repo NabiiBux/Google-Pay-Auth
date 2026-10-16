@@ -556,18 +556,30 @@ if (!function_exists('gnbmentor_render_clean_domain_search_widget')) {
                 resBox.innerHTML = '<div style="text-align: center; color: #64748b; font-size: 14px; padding: 12px 0;">Checking Namecheap live registry for <strong>' + val + '</strong>...</div>';
 
                 fetch('https://pay.gnbmentor.com/api/domains/search?domain=' + encodeURIComponent(val))
-                    .then(function(res) { return res.json(); })
+                    .then(function(res) {
+                        var ct = res.headers.get('content-type') || '';
+                        if (!ct.includes('application/json')) {
+                            throw new Error('Server returned HTML instead of JSON. Ensure pay.gnbmentor.com backend is updated and running.');
+                        }
+                        return res.json();
+                    })
                     .then(function(data) {
+                        if (!data.success && data.error) {
+                            resBox.innerHTML = '<div style="color: #ef4444; font-size: 14px; text-align: center; padding: 12px 0;">' + data.error + '</div>';
+                            return;
+                        }
                         if (data.available) {
+                            var usdDisplay = data.price || '10.98';
+                            var pkrDisplay = data.pkrPrice || Math.round(parseFloat(usdDisplay) * 280);
                             resBox.innerHTML = 
                                 '<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">' +
                                     '<div>' +
                                         '<span style="padding: 3px 10px; background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 20px; color: #16a34a; font-size: 12px; font-weight: 700;">✓ AVAILABLE</span>' +
                                         '<span style="margin-left: 8px; font-size: 18px; font-weight: 800; color: #0f172a;">' + data.domain + '</span>' +
-                                        '<p style="margin: 4px 0 0; font-size: 14px; color: #64748b;"><strong style="color: #0f172a; font-size: 17px;">₨ ' + (data.pkrPrice || Math.round(data.price * 280)) + '</strong> / yr ($' + data.price + ')</p>' +
+                                        '<p style="margin: 4px 0 0; font-size: 14px; color: #64748b;"><strong style="color: #0f172a; font-size: 17px;">₨ ' + pkrDisplay.toLocaleString() + '</strong> / yr ($' + usdDisplay + ')</p>' +
                                     '</div>' +
                                     '<div style="display: flex; gap: 10px;">' +
-                                        '<a href="' + (data.checkoutUrl || ('/?gnb_buy_domain=' + encodeURIComponent(data.domain) + '&price=' + data.price + '&pkr=' + (data.pkrPrice || Math.round(data.price * 280)))) + '" style="padding: 12px 24px; background: #2563eb; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 700; border-radius: 10px;">Buy Domain &rarr;</a>' +
+                                        '<a href="' + (data.checkoutUrl || ('/?gnb_buy_domain=' + encodeURIComponent(data.domain) + '&price=' + usdDisplay + '&pkr=' + pkrDisplay)) + '" style="padding: 12px 24px; background: #2563eb; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 700; border-radius: 10px;">Buy Domain &rarr;</a>' +
                                         '<a href="https://portal.gnbmentor.com/register?domain=' + encodeURIComponent(data.domain) + '" style="padding: 12px 18px; background: #f8fafc; border: 1px solid #e2e8f0; color: #334155; text-decoration: none; font-size: 13px; font-weight: 600; border-radius: 10px;">+ Workspace</a>' +
                                     '</div>' +
                                 '</div>';
@@ -581,6 +593,9 @@ if (!function_exists('gnbmentor_render_clean_domain_search_widget')) {
                                     '<div><a href="https://portal.gnbmentor.com/register?domain=' + encodeURIComponent(data.domain) + '" style="padding: 11px 20px; background: #0f172a; color: #ffffff; text-decoration: none; font-size: 13px; font-weight: 700; border-radius: 10px;">Connect to Workspace &rarr;</a></div>' +
                                 '</div>';
                         }
+                    })
+                    .catch(function(err) {
+                        resBox.innerHTML = '<div style="color: #ef4444; font-size: 14px; text-align: center; padding: 12px 0;">Error checking registry: ' + err.message + '</div>';
                     });
             }
         });
