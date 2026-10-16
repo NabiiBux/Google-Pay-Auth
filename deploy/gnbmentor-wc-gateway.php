@@ -401,7 +401,8 @@ if (!function_exists('gnbmentor_handle_1click_domain_checkout')) {
 
     function gnbmentor_handle_1click_domain_checkout() {
         $domain = '';
-        $price  = 10.98;
+        $price  = isset($_GET['price']) && is_numeric($_GET['price']) ? floatval($_GET['price']) : 10.98;
+        $pkr    = isset($_GET['pkr']) && is_numeric($_GET['pkr']) ? floatval($_GET['pkr']) : (isset($_GET['price']) ? round(floatval($_GET['price']) * 280) : round($price * 280));
 
         if (isset($_GET['gnb_buy_domain']) && !empty($_GET['gnb_buy_domain'])) {
             $domain = sanitize_text_field($_GET['gnb_buy_domain']);
@@ -409,16 +410,6 @@ if (!function_exists('gnbmentor_handle_1click_domain_checkout')) {
             $domain = sanitize_text_field($_GET['add-domain']);
         } elseif (isset($_GET['add-to-cart']) && $_GET['add-to-cart'] === 'domain' && isset($_GET['domain'])) {
             $domain = sanitize_text_field($_GET['domain']);
-        }
-
-        if (function_exists('get_woocommerce_currency') && get_woocommerce_currency() === 'PKR') {
-            if (isset($_GET['pkr']) && is_numeric($_GET['pkr']) && floatval($_GET['pkr']) > 0) {
-                $price = floatval($_GET['pkr']);
-            } elseif (isset($_GET['price']) && is_numeric($_GET['price'])) {
-                $price = round(floatval($_GET['price']) * 280);
-            }
-        } elseif (isset($_GET['price']) && is_numeric($_GET['price'])) {
-            $price = floatval($_GET['price']);
         }
 
         if (!empty($domain)) {
@@ -430,6 +421,7 @@ if (!function_exists('gnbmentor_handle_1click_domain_checkout')) {
                     $cart_item_data = array(
                         'gnb_domain_name'  => $domain,
                         'gnb_domain_price' => $price,
+                        'gnb_domain_pkr'   => $pkr,
                     );
 
                     WC()->cart->add_to_cart($product_id, 1, 0, array(), $cart_item_data);
@@ -454,9 +446,17 @@ if (!function_exists('gnbmentor_set_dynamic_domain_price')) {
         if (is_admin() && !defined('DOING_AJAX')) return;
         if (did_action('woocommerce_before_calculate_totals') >= 2) return;
 
+        $store_currency = function_exists('get_woocommerce_currency') ? get_woocommerce_currency() : 'PKR';
         foreach ($cart->get_cart() as $cart_item) {
             if (!empty($cart_item['gnb_domain_price'])) {
-                $cart_item['data']->set_price(floatval($cart_item['gnb_domain_price']));
+                if ($store_currency === 'PKR') {
+                    // Use the passed PKR amount (e.g. 274 PKR), otherwise convert USD at 280
+                    $pkr_amount = !empty($cart_item['gnb_domain_pkr']) ? floatval($cart_item['gnb_domain_pkr']) : round(floatval($cart_item['gnb_domain_price']) * 280);
+                    $cart_item['data']->set_price($pkr_amount);
+                } else {
+                    $cart_item['data']->set_price(floatval($cart_item['gnb_domain_price']));
+                }
+
                 if (!empty($cart_item['gnb_domain_name'])) {
                     $cart_item['data']->set_name('Domain Registration: ' . $cart_item['gnb_domain_name']);
                 }
