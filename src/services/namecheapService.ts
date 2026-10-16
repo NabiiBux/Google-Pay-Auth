@@ -19,6 +19,91 @@ const NAMECHEAP_ENDPOINT = NAMECHEAP_SANDBOX
   ? 'https://api.sandbox.namecheap.com/xml.response'
   : 'https://api.namecheap.com/xml.response';
 
+// Cache for live TLD prices fetched from Namecheap getPricing API (TTL: 1 hour)
+const tldPricingCache = new Map<string, { price: string; timestamp: number }>();
+const CACHE_TTL_MS = 60 * 60 * 1000;
+
+const defaultPrices: Record<string, string> = {
+  com: '10.98',
+  net: '12.98',
+  org: '11.98',
+  co: '24.98',
+  io: '38.98',
+  ai: '69.98',
+  store: '1.47',
+  tech: '1.47',
+  shop: '1.47',
+  online: '1.47',
+  site: '1.47',
+  club: '2.98',
+  app: '14.98',
+  dev: '14.98',
+  pk: '14.50',
+};
+
+/**
+ * Query live registrar TLD registration price via Namecheap users.getPricing
+ */
+export async function fetchLiveTldPriceFromNamecheap(tld: string): Promise<string | null> {
+  const cleanTld = tld.toLowerCase().replace(/^\./, '');
+  const cached = tldPricingCache.get(cleanTld);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.price;
+  }
+
+  if (!NAMECHEAP_API_USER || !NAMECHEAP_API_KEY) {
+    return defaultPrices[cleanTld] || '10.98';
+  }
+
+  try {
+    const url = new URL(NAMECHEAP_ENDPOINT);
+    url.searchParams.append('ApiUser', NAMECHEAP_API_USER);
+    url.searchParams.append('ApiKey', NAMECHEAP_API_KEY);
+    url.searchParams.append('UserName', NAMECHEAP_API_USER);
+    url.searchParams.append('ClientIP', NAMECHEAP_CLIENT_IP);
+    url.searchParams.append('Command', 'namecheap.users.getPricing');
+    url.searchParams.append('ProductType', 'DOMAIN');
+    url.searchParams.append('ProductCategory', 'DOMAINS');
+    url.searchParams.append('ActionName', 'REGISTER');
+    url.searchParams.append('ProductName', cleanTld.toUpperCase());
+
+    const res = await fetch(url.toString(), {
+      method: 'GET',
+      signal: AbortSignal.timeout(4000),
+    });
+    const xml = await res.text();
+
+    const productRegex = new RegExp(`<Product[^>]*Name=["']?${cleanTld}["']?[^>]*>([\\s\\S]*?)<\\/Product>`, 'i');
+    const productMatch = xml.match(productRegex);
+    const scopeXml = productMatch ? productMatch[1] : xml;
+
+    const promoMatch = scopeXml.match(/PromotionPrice=["']([^"']+)["']/i);
+    const yourPriceMatch = scopeXml.match(/YourPrice=["']([^"']+)["']/i);
+    const currentPriceMatch = scopeXml.match(/CurrentPrice=["']([^"']+)["']/i);
+    const regPriceMatch = scopeXml.match(/(?:^|\s)Price=["']([^"']+)["']/i);
+
+    let priceCandidate: string | null = null;
+    if (promoMatch && parseFloat(promoMatch[1]) > 0) {
+      priceCandidate = parseFloat(promoMatch[1]).toFixed(2);
+    } else if (yourPriceMatch && parseFloat(yourPriceMatch[1]) > 0) {
+      priceCandidate = parseFloat(yourPriceMatch[1]).toFixed(2);
+    } else if (currentPriceMatch && parseFloat(currentPriceMatch[1]) > 0) {
+      priceCandidate = parseFloat(currentPriceMatch[1]).toFixed(2);
+    } else if (regPriceMatch && parseFloat(regPriceMatch[1]) > 0) {
+      priceCandidate = parseFloat(regPriceMatch[1]).toFixed(2);
+    }
+
+    if (priceCandidate && parseFloat(priceCandidate) > 0) {
+      tldPricingCache.set(cleanTld, { price: priceCandidate, timestamp: Date.now() });
+      return priceCandidate;
+    }
+  } catch (err: any) {
+    console.warn(`[NAMECHEAP-PRICING] Failed to query getPricing for .${cleanTld}:`, err.message);
+  }
+
+  return defaultPrices[cleanTld] || '10.98';
+}
+
 /**
  * Check domain availability via Namecheap Reseller API
  */
@@ -27,17 +112,7 @@ export async function checkDomainAvailability(domain: string): Promise<Namecheap
 
   // Extract TLD
   const tld = cleanDomain.split('.').pop() || 'com';
-  const defaultPrices: Record<string, string> = {
-    com: '10.98',
-    net: '12.98',
-    org: '11.98',
-    co: '24.98',
-    io: '38.98',
-    ai: '69.98',
-    store: '4.98',
-    tech: '4.98',
-  };
-  const estimatedPrice = defaultPrices[tld] || '12.98';
+  const fallbackPrice = defaultPrices[tld] || '10.98';
 
   // If live credentials are provided, call Namecheap Reseller XML API
   if (NAMECHEAP_API_USER && NAMECHEAP_API_KEY) {
@@ -51,22 +126,44 @@ export async function checkDomainAvailability(domain: string): Promise<Namecheap
       url.searchParams.append('DomainList', cleanDomain);
 
       console.log(`[NAMECHEAP-API] Checking domain availability: ${cleanDomain}`);
-      const response = await fetch(url.toString(), { method: 'GET' });
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        signal: AbortSignal.timeout(4000),
+      });
       const xmlText = await response.text();
 
       // Parse XML response
       const isAvailableMatch = xmlText.match(/Available="([^"]+)"/i);
       const isPremiumMatch = xmlText.match(/IsPremiumName="([^"]+)"/i);
-      const priceMatch = xmlText.match(/PremiumRegistrationPrice="([^"]+)"/i);
+      const premiumPriceMatch = xmlText.match(/PremiumRegistrationPrice="([^"]+)"/i);
 
       const isAvailable = isAvailableMatch ? isAvailableMatch[1].toLowerCase() === 'true' : false;
       const isPremium = isPremiumMatch ? isPremiumMatch[1].toLowerCase() === 'true' : false;
-      const livePrice = priceMatch ? priceMatch[1] : estimatedPrice;
+
+      let resolvedPrice = fallbackPrice;
+
+      // 1. If it's a verified premium domain and has a non-zero premium price, use it
+      if (isPremium && premiumPriceMatch && parseFloat(premiumPriceMatch[1]) > 0) {
+        resolvedPrice = parseFloat(premiumPriceMatch[1]).toFixed(2);
+      } else {
+        // 2. For standard non-premium domains (where PremiumRegistrationPrice is 0), fetch live registrar TLD price
+        const liveTldPrice = await fetchLiveTldPriceFromNamecheap(tld);
+        if (liveTldPrice && parseFloat(liveTldPrice) > 0) {
+          resolvedPrice = liveTldPrice;
+        } else {
+          resolvedPrice = fallbackPrice;
+        }
+      }
+
+      // Strict guarantee: Price must never be "0" or <= 0
+      if (!resolvedPrice || parseFloat(resolvedPrice) <= 0) {
+        resolvedPrice = fallbackPrice;
+      }
 
       return {
         domain: cleanDomain,
         available: isAvailable,
-        price: livePrice,
+        price: resolvedPrice,
         currency: 'USD',
         isPremium,
       };
@@ -82,7 +179,7 @@ export async function checkDomainAvailability(domain: string): Promise<Namecheap
   return {
     domain: cleanDomain,
     available: isAvailable,
-    price: estimatedPrice,
+    price: fallbackPrice,
     currency: 'USD',
     isPremium: false,
     message: isAvailable ? 'Domain is ready for instant registration' : 'Domain is currently registered',

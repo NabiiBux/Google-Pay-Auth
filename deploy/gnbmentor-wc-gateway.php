@@ -411,7 +411,13 @@ if (!function_exists('gnbmentor_handle_1click_domain_checkout')) {
             $domain = sanitize_text_field($_GET['domain']);
         }
 
-        if (isset($_GET['price']) && is_numeric($_GET['price'])) {
+        if (function_exists('get_woocommerce_currency') && get_woocommerce_currency() === 'PKR') {
+            if (isset($_GET['pkr']) && is_numeric($_GET['pkr']) && floatval($_GET['pkr']) > 0) {
+                $price = floatval($_GET['pkr']);
+            } elseif (isset($_GET['price']) && is_numeric($_GET['price'])) {
+                $price = round(floatval($_GET['price']) * 280);
+            }
+        } elseif (isset($_GET['price']) && is_numeric($_GET['price'])) {
             $price = floatval($_GET['price']);
         }
 
@@ -561,7 +567,7 @@ if (!function_exists('gnbmentor_render_clean_domain_search_widget')) {
                                         '<p style="margin: 4px 0 0; font-size: 14px; color: #64748b;"><strong style="color: #0f172a; font-size: 17px;">₨ ' + (data.pkrPrice || Math.round(data.price * 280)) + '</strong> / yr ($' + data.price + ')</p>' +
                                     '</div>' +
                                     '<div style="display: flex; gap: 10px;">' +
-                                        '<a href="/?gnb_buy_domain=' + encodeURIComponent(data.domain) + '&price=' + data.price + '" style="padding: 12px 24px; background: #2563eb; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 700; border-radius: 10px;">Buy Domain &rarr;</a>' +
+                                        '<a href="' + (data.checkoutUrl || ('/?gnb_buy_domain=' + encodeURIComponent(data.domain) + '&price=' + data.price + '&pkr=' + (data.pkrPrice || Math.round(data.price * 280)))) + '" style="padding: 12px 24px; background: #2563eb; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 700; border-radius: 10px;">Buy Domain &rarr;</a>' +
                                         '<a href="https://portal.gnbmentor.com/register?domain=' + encodeURIComponent(data.domain) + '" style="padding: 12px 18px; background: #f8fafc; border: 1px solid #e2e8f0; color: #334155; text-decoration: none; font-size: 13px; font-weight: 600; border-radius: 10px;">+ Workspace</a>' +
                                     '</div>' +
                                 '</div>';
