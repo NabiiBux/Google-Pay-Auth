@@ -209,26 +209,61 @@ if (!function_exists('gnbmentor_render_workspace_portal_button')) {
         $order_key      = $order->get_order_key();
         $customer_email = $order->get_billing_email();
 
-        $plan_name = '';
+        $has_paid_workspace = false;
+        $purchased_domain   = '';
+        $plan_name          = '';
+
         if (method_exists($order, 'get_items')) {
             foreach ($order->get_items() as $item) {
-                $plan_name = $item->get_name();
-                break;
+                $pname = strtolower($item->get_name());
+                if (strpos($pname, 'workspace') !== false || strpos($pname, 'business starter') !== false || strpos($pname, 'business standard') !== false) {
+                    $has_paid_workspace = true;
+                    $plan_name = $item->get_name();
+                }
+                $item_domain = $item->get_meta('Domain');
+                if (!empty($item_domain)) {
+                    $purchased_domain = $item_domain;
+                }
             }
         }
 
-        $portal_query = array(
-            'email'  => $customer_email,
-            'order'  => $numeric_order_id,
-            'status' => 'paid',
-            'ref'    => 'woocommerce_thankyou',
-        );
-        if (!empty($plan_name)) {
-            $portal_query['plan'] = $plan_name;
+        if (empty($purchased_domain)) {
+            $purchased_domain = $order->get_meta('_gnb_registered_domain');
         }
 
-        $portal_url = add_query_arg($portal_query, 'https://portal.gnbmentor.com/register');
-        $rendered   = true;
+        if ($has_paid_workspace) {
+            $portal_query = array(
+                'email'  => $customer_email,
+                'order'  => $numeric_order_id,
+                'status' => 'paid',
+                'ref'    => 'woocommerce_thankyou',
+            );
+            if (!empty($plan_name)) {
+                $portal_query['plan'] = $plan_name;
+            }
+            if (!empty($purchased_domain)) {
+                $portal_query['domain'] = $purchased_domain;
+            }
+            $action_url   = add_query_arg($portal_query, 'https://portal.gnbmentor.com/register');
+            $button_label = '🚀 Launch Setup Portal Now &rarr;';
+            $kicker_text  = 'NEXT STEP: AUTOMATED ONBOARDING';
+            $card_title   = 'Setup Your Google Workspace';
+            $intro_text   = 'Thank you for choosing GNB MENTOR! Your order (Order #' . esc_html($numeric_order_id) . ') is confirmed. Click the button below to complete setup:';
+        } else {
+            $pricing_query = array(
+                'order' => $numeric_order_id,
+            );
+            if (!empty($purchased_domain)) {
+                $pricing_query['domain'] = $purchased_domain;
+            }
+            $action_url   = add_query_arg($pricing_query, 'https://gnbmentor.com/pricing');
+            $button_label = '⚡ Setup Workspace &rarr;';
+            $kicker_text  = 'NEXT STEP: CONNECT PROFESSIONAL EMAIL';
+            $card_title   = 'Get Google Workspace' . (!empty($purchased_domain) ? ' for ' . esc_html($purchased_domain) : '');
+            $intro_text   = 'Your domain registration (Order #' . esc_html($numeric_order_id) . ') is confirmed! Choose your Google Workspace plan below to activate your custom business email:';
+        }
+
+        $rendered = true;
         ?>
         <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -244,20 +279,20 @@ if (!function_exists('gnbmentor_render_workspace_portal_button')) {
                 <div class="gnb-ws-badge">
                     <span class="gnb-ws-icon">💼</span>
                     <div>
-                        <span class="gnb-ws-kicker">NEXT STEP: AUTOMATED ONBOARDING</span>
-                        <h2 class="gnb-ws-title">Setup Your Google Workspace</h2>
+                        <span class="gnb-ws-kicker"><?php echo esc_html($kicker_text); ?></span>
+                        <h2 class="gnb-ws-title"><?php echo esc_html($card_title); ?></h2>
                     </div>
                 </div>
                 <span class="gnb-ws-status-chip">✓ Payment Verified</span>
             </div>
             <p class="gnb-ws-intro">
-                Thank you for choosing GNB MENTOR! Your order (Order #<?php echo esc_html($numeric_order_id); ?>) is confirmed. Click the button below to complete setup:
+                <?php echo $intro_text; ?>
             </p>
             <div class="gnb-ws-cta-box">
-                <a href="<?php echo esc_url($portal_url); ?>" class="gnb-ws-btn-portal" target="_blank" rel="noopener">
-                    <span>🚀 Launch Setup Portal Now &rarr;</span>
+                <a href="<?php echo esc_url($action_url); ?>" class="gnb-ws-btn-portal" <?php echo $has_paid_workspace ? 'target="_blank" rel="noopener"' : ''; ?>>
+                    <span><?php echo esc_html($button_label); ?></span>
                 </a>
-                <a href="https://wa.me/923023167793?text=Hi%20GNB%20MENTOR%20Team%2C%20I%20completed%20Google%20Workspace%20Order%20%23<?php echo esc_attr($numeric_order_id); ?>." class="gnb-ws-btn-wa" target="_blank" rel="noopener">
+                <a href="https://wa.me/923023167793?text=Hi%20GNB%20MENTOR%20Team%2C%20I%20completed%20Order%20%23<?php echo esc_attr($numeric_order_id); ?>." class="gnb-ws-btn-wa" target="_blank" rel="noopener">
                     <span>💬 WhatsApp Setup Concierge (+92-302-3167793)</span>
                 </a>
             </div>
@@ -422,8 +457,7 @@ if (!function_exists('gnbmentor_handle_1click_domain_checkout')) {
 
     function gnbmentor_handle_1click_domain_checkout() {
         $domain = '';
-        $price  = isset($_GET['price']) && is_numeric($_GET['price']) ? floatval($_GET['price']) : 10.98;
-        $pkr    = isset($_GET['pkr']) ? floatval($_GET['pkr']) : (isset($_GET['price']) ? round(floatval($_GET['price']) * 280) : 0);
+        $final_price = 10.98;
 
         if (isset($_GET['gnb_buy_domain']) && !empty($_GET['gnb_buy_domain'])) {
             $domain = sanitize_text_field($_GET['gnb_buy_domain']);
@@ -431,6 +465,21 @@ if (!function_exists('gnbmentor_handle_1click_domain_checkout')) {
             $domain = sanitize_text_field($_GET['add-domain']);
         } elseif (isset($_GET['add-to-cart']) && $_GET['add-to-cart'] === 'domain' && isset($_GET['domain'])) {
             $domain = sanitize_text_field($_GET['domain']);
+        }
+
+        $store_currency = function_exists('get_woocommerce_currency') ? get_woocommerce_currency() : 'PKR';
+
+        // Calculate exact price once
+        if ($store_currency === 'PKR') {
+            if (isset($_GET['pkr']) && is_numeric($_GET['pkr']) && floatval($_GET['pkr']) > 0) {
+                $final_price = floatval($_GET['pkr']);
+            } elseif (isset($_GET['price']) && is_numeric($_GET['price'])) {
+                $final_price = round(floatval($_GET['price']) * 280);
+            }
+        } else {
+            if (isset($_GET['price']) && is_numeric($_GET['price'])) {
+                $final_price = floatval($_GET['price']);
+            }
         }
 
         if (!empty($domain)) {
@@ -441,8 +490,7 @@ if (!function_exists('gnbmentor_handle_1click_domain_checkout')) {
 
                     $cart_item_data = array(
                         'gnb_domain_name'  => $domain,
-                        'gnb_domain_price' => $price,
-                        'gnb_domain_pkr'   => $pkr,
+                        'gnb_domain_price' => $final_price,
                     );
 
                     WC()->cart->add_to_cart($product_id, 1, 0, array(), $cart_item_data);
@@ -467,16 +515,10 @@ if (!function_exists('gnbmentor_set_dynamic_domain_price')) {
         if (is_admin() && !defined('DOING_AJAX')) return;
         if (did_action('woocommerce_before_calculate_totals') >= 2) return;
 
-        $store_currency = function_exists('get_woocommerce_currency') ? get_woocommerce_currency() : 'PKR';
         foreach ($cart->get_cart() as $cart_item) {
             if (!empty($cart_item['gnb_domain_price'])) {
-                if ($store_currency === 'PKR') {
-                    // Use the passed PKR amount (e.g. 274 PKR), otherwise convert USD at 280
-                    $pkr_amount = !empty($cart_item['gnb_domain_pkr']) ? floatval($cart_item['gnb_domain_pkr']) : round(floatval($cart_item['gnb_domain_price']) * 280);
-                    $cart_item['data']->set_price($pkr_amount);
-                } else {
-                    $cart_item['data']->set_price(floatval($cart_item['gnb_domain_price']));
-                }
+                // Apply the exact pre-calculated price directly (do not multiply by 280 again!)
+                $cart_item['data']->set_price(floatval($cart_item['gnb_domain_price']));
 
                 if (!empty($cart_item['gnb_domain_name'])) {
                     $cart_item['data']->set_name('Domain Registration: ' . $cart_item['gnb_domain_name']);
