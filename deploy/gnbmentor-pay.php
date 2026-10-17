@@ -388,7 +388,7 @@ if (!function_exists('gnbmentor_pay_bootstrap_plugin')) {
                         'customer_email' => $customer_email,
                         'timestamp'      => $timestamp,
                         'signature'      => $signature,
-                        'return_url'     => rawurlencode($return_url),
+                        'return_url'     => $return_url,
                     ), 'https://pay.gnbmentor.com/checkout');
 
                     return array(

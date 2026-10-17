@@ -330,6 +330,40 @@ async function notifyPortalOrderPaid(
   }
 }
 
+/**
+ * Robustly sanitizes and validates return_url for Stripe PaymentIntents & Checkout
+ * Handles double/triple URL encoding and validates scheme against RFC standards
+ */
+function sanitizeReturnUrl(url?: string, order_id?: string | number, order_key?: string): string {
+  let clean = String(url || '').trim();
+  for (let i = 0; i < 3; i++) {
+    if (clean.includes('%3A') || clean.includes('%2F') || clean.includes('%25')) {
+      try {
+        const decoded = decodeURIComponent(clean);
+        if (decoded === clean) break;
+        clean = decoded;
+      } catch {
+        break;
+      }
+    } else {
+      break;
+    }
+  }
+
+  try {
+    const parsed = new URL(clean);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.toString();
+    }
+  } catch {
+    // fallback below
+  }
+
+  const base = WC_STORE_URL.replace(/\/$/, '');
+  const keyParam = order_key ? `&key=${encodeURIComponent(order_key)}` : '';
+  return `${base}/checkout/order-received/${order_id || 'order'}/?payment_status=success${keyParam}`;
+}
+
 // -------------------------------------------------------------
 // Core Payment Gateway API Endpoints
 // -------------------------------------------------------------
@@ -648,11 +682,7 @@ app.post('/api/create-payment-intent', async (req, res) => {
 
     const amountInCents = Math.round(finalAmount * 100);
 
-    const storeBase = WC_STORE_URL.replace(/\/$/, '');
-    const safeReturnUrl =
-      typeof return_url === 'string' && return_url.startsWith('http')
-        ? return_url
-        : `${storeBase}/checkout/order-received/${order_id}/?key=${order_key || ''}&payment_status=success`;
+    const safeReturnUrl = sanitizeReturnUrl(return_url, order_id, order_key);
 
     if (stripe) {
       try {
@@ -743,9 +773,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
     const numericAmount = parseFloat(amount);
     const amountInCents = Math.round(numericAmount * 100);
 
-    const successUrl =
-      return_url ||
-      `${WC_STORE_URL.replace(/\/$/, '')}/checkout/order-received/${order_id}/?key=${order_key || ''}&payment_status=success&session_id={CHECKOUT_SESSION_ID}`;
+    const successUrl = sanitizeReturnUrl(return_url, order_id, order_key);
 
     const cancelUrl = `https://pay.gnbmentor.com/checkout?order_id=${order_id}&amount=${amount}&currency=${currency}&order_key=${order_key || ''}`;
 
@@ -906,11 +934,7 @@ app.post('/api/confirm-google-pay', async (req, res) => {
       return res.status(400).json({ error: 'order_id and payment_data_token are required' });
     }
 
-    const storeBase = WC_STORE_URL.replace(/\/$/, '');
-    const safeReturnUrl =
-      typeof return_url === 'string' && return_url.startsWith('http')
-        ? return_url
-        : `${storeBase}/checkout/order-received/${order_id}/?key=${order_key || ''}&payment_status=success`;
+    const safeReturnUrl = sanitizeReturnUrl(return_url, order_id, order_key);
 
     let parsedToken: any;
     try {
