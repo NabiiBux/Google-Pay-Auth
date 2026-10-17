@@ -615,6 +615,7 @@ app.post('/api/create-payment-intent', async (req, res) => {
       customer_email,
       customer_name,
       order_key,
+      return_url,
     } = req.body;
 
     if (!order_id || !amount) {
@@ -641,6 +642,12 @@ app.post('/api/create-payment-intent', async (req, res) => {
 
     const amountInCents = Math.round(finalAmount * 100);
 
+    const storeBase = WC_STORE_URL.replace(/\/$/, '');
+    const safeReturnUrl =
+      typeof return_url === 'string' && return_url.startsWith('http')
+        ? return_url
+        : `${storeBase}/checkout/order-received/${order_id}/?key=${order_key || ''}&payment_status=success`;
+
     if (stripe) {
       try {
         const paymentIntent = await stripe.paymentIntents.create({
@@ -654,6 +661,7 @@ app.post('/api/create-payment-intent', async (req, res) => {
             order_key: String(order_key || ''),
             customer_name: String(customer_name || ''),
             customer_email: String(customer_email || ''),
+            return_url: safeReturnUrl,
             source: 'pay.gnbmentor.com',
             parent_domain: WC_STORE_URL,
             subtotal: String(numericAmount.toFixed(2)),
@@ -674,6 +682,7 @@ app.post('/api/create-payment-intent', async (req, res) => {
           taxAmount,
           amount: finalAmount,
           currency: currency.toUpperCase(),
+          returnUrl: safeReturnUrl,
           isMock: false,
         });
       } catch (stripeErr: any) {
@@ -690,6 +699,7 @@ app.post('/api/create-payment-intent', async (req, res) => {
       taxAmount,
       amount: finalAmount,
       currency: currency.toUpperCase(),
+      returnUrl: safeReturnUrl,
       isMock: true,
     });
   } catch (error: any) {
@@ -883,11 +893,18 @@ app.post('/api/confirm-google-pay', async (req, res) => {
       currency = 'USD',
       customer_email = '',
       customer_name = '',
+      return_url,
     } = req.body;
 
     if (!order_id || !payment_data_token) {
       return res.status(400).json({ error: 'order_id and payment_data_token are required' });
     }
+
+    const storeBase = WC_STORE_URL.replace(/\/$/, '');
+    const safeReturnUrl =
+      typeof return_url === 'string' && return_url.startsWith('http')
+        ? return_url
+        : `${storeBase}/checkout/order-received/${order_id}/?key=${order_key || ''}&payment_status=success`;
 
     let parsedToken: any;
     try {
@@ -901,6 +918,8 @@ app.post('/api/confirm-google-pay', async (req, res) => {
 
     const tokenId = parsedToken.id || parsedToken;
     let finalTxId = String(tokenId);
+    let requiresAction = false;
+    let redirectUrl = '';
 
     if (stripe) {
       try {
@@ -917,6 +936,7 @@ app.post('/api/confirm-google-pay', async (req, res) => {
               order_id: String(order_id),
               order_key: String(order_key || ''),
               source: 'google_pay_api',
+              return_url: safeReturnUrl,
             },
           });
           targetIntentId = pi.id;
@@ -926,6 +946,7 @@ app.post('/api/confirm-google-pay', async (req, res) => {
         if (String(tokenId).startsWith('pm_')) {
           confirmedIntent = await stripe.paymentIntents.confirm(targetIntentId, {
             payment_method: tokenId,
+            return_url: safeReturnUrl,
           });
         } else {
           confirmedIntent = await stripe.paymentIntents.confirm(targetIntentId, {
@@ -933,16 +954,32 @@ app.post('/api/confirm-google-pay', async (req, res) => {
               type: 'card',
               card: { token: String(tokenId) },
             } as any,
+            return_url: safeReturnUrl,
           });
         }
 
         finalTxId = confirmedIntent.id;
+
+        if (confirmedIntent.status === 'requires_action' && confirmedIntent.next_action?.redirect_to_url?.url) {
+          requiresAction = true;
+          redirectUrl = confirmedIntent.next_action.redirect_to_url.url;
+        }
       } catch (stripeErr: any) {
         console.warn('[STRIPE] Google Pay confirmation note:', stripeErr.message);
         finalTxId = `gpay_auth_${Date.now()}`;
       }
     } else {
       finalTxId = `gpay_auth_${Date.now()}`;
+    }
+
+    if (requiresAction && redirectUrl) {
+      return res.json({
+        success: true,
+        requires_action: true,
+        redirect_url: redirectUrl,
+        transaction_id: finalTxId,
+        return_url: safeReturnUrl,
+      });
     }
 
     // 1. Notify WooCommerce
@@ -971,6 +1008,7 @@ app.post('/api/confirm-google-pay', async (req, res) => {
       transaction_id: finalTxId,
       wooCommerceSync: wcResult,
       portalRedirectUrl: `${PORTAL_URL}/?order_id=${order_id}&status=paid`,
+      return_url: safeReturnUrl,
     });
   } catch (err: any) {
     console.error('Google Pay confirmation error:', err);

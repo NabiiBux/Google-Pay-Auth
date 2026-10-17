@@ -196,17 +196,21 @@ if (!function_exists('gnbmentor_render_workspace_portal_button')) {
         static $rendered = false;
         if ($rendered) return;
 
-        if (!$order_id && isset($_GET['order_id'])) {
-            $order_id = absint($_GET['order_id']);
+        // Safely resolve both numeric order ID and WC_Order instance
+        $order = is_numeric($order_id) ? wc_get_order($order_id) : $order_id;
+        if (!$order && isset($_GET['order_id'])) {
+            $order = wc_get_order(absint($_GET['order_id']));
         }
-        if (!$order_id) return;
+        if (!$order || !($order instanceof WC_Order)) {
+            return;
+        }
+        $numeric_order_id = $order->get_id();
 
-        $order = function_exists('wc_get_order') ? wc_get_order($order_id) : null;
-        $order_key      = $order ? $order->get_order_key() : (isset($_GET['key']) ? sanitize_text_field($_GET['key']) : '');
-        $customer_email = $order ? $order->get_billing_email() : '';
+        $order_key      = $order->get_order_key();
+        $customer_email = $order->get_billing_email();
 
         $plan_name = '';
-        if ($order && method_exists($order, 'get_items')) {
+        if (method_exists($order, 'get_items')) {
             foreach ($order->get_items() as $item) {
                 $plan_name = $item->get_name();
                 break;
@@ -215,7 +219,7 @@ if (!function_exists('gnbmentor_render_workspace_portal_button')) {
 
         $portal_query = array(
             'email'  => $customer_email,
-            'order'  => $order_id,
+            'order'  => $numeric_order_id,
             'status' => 'paid',
             'ref'    => 'woocommerce_thankyou',
         );
@@ -247,13 +251,13 @@ if (!function_exists('gnbmentor_render_workspace_portal_button')) {
                 <span class="gnb-ws-status-chip">✓ Payment Verified</span>
             </div>
             <p class="gnb-ws-intro">
-                Thank you for choosing GNB MENTOR! Your order (Order #<?php echo esc_html($order_id); ?>) is confirmed. Click the button below to complete setup:
+                Thank you for choosing GNB MENTOR! Your order (Order #<?php echo esc_html($numeric_order_id); ?>) is confirmed. Click the button below to complete setup:
             </p>
             <div class="gnb-ws-cta-box">
                 <a href="<?php echo esc_url($portal_url); ?>" class="gnb-ws-btn-portal" target="_blank" rel="noopener">
                     <span>🚀 Launch Setup Portal Now &rarr;</span>
                 </a>
-                <a href="https://wa.me/923023167793?text=Hi%20GNB%20MENTOR%20Team%2C%20I%20completed%20Google%20Workspace%20Order%20%23<?php echo esc_attr($order_id); ?>." class="gnb-ws-btn-wa" target="_blank" rel="noopener">
+                <a href="https://wa.me/923023167793?text=Hi%20GNB%20MENTOR%20Team%2C%20I%20completed%20Google%20Workspace%20Order%20%23<?php echo esc_attr($numeric_order_id); ?>." class="gnb-ws-btn-wa" target="_blank" rel="noopener">
                     <span>💬 WhatsApp Setup Concierge (+92-302-3167793)</span>
                 </a>
             </div>
@@ -323,6 +327,23 @@ if (!function_exists('gnbmentor_pay_bootstrap_plugin')) {
                     $payload   = "{$order_id}|{$amount}|{$currency}|{$timestamp}";
                     $signature = hash_hmac('sha256', $payload, $secret);
 
+                    // Ensure guaranteed absolute return URL for Stripe 3DS & WooCommerce completion
+                    $return_url = $this->get_return_url($order);
+                    if (empty($return_url) || !filter_var($return_url, FILTER_VALIDATE_URL)) {
+                        if (function_exists('wc_get_endpoint_url')) {
+                            $return_url = wc_get_endpoint_url('order-received', $order_id, wc_get_checkout_url());
+                        }
+                        if (empty($return_url) || !filter_var($return_url, FILTER_VALIDATE_URL)) {
+                            $return_url = home_url('/checkout/order-received/' . $order_id . '/');
+                        }
+                        if ($order_key) {
+                            $return_url = add_query_arg('key', $order_key, $return_url);
+                        }
+                    }
+                    if (strpos($return_url, 'http') !== 0) {
+                        $return_url = home_url($return_url);
+                    }
+
                     $checkout_url = add_query_arg(array(
                         'order_id'       => $order_id,
                         'amount'         => $amount,
@@ -332,7 +353,7 @@ if (!function_exists('gnbmentor_pay_bootstrap_plugin')) {
                         'customer_email' => $customer_email,
                         'timestamp'      => $timestamp,
                         'signature'      => $signature,
-                        'return_url'     => $this->get_return_url($order),
+                        'return_url'     => rawurlencode($return_url),
                     ), 'https://pay.gnbmentor.com/checkout');
 
                     return array(
@@ -402,7 +423,7 @@ if (!function_exists('gnbmentor_handle_1click_domain_checkout')) {
     function gnbmentor_handle_1click_domain_checkout() {
         $domain = '';
         $price  = isset($_GET['price']) && is_numeric($_GET['price']) ? floatval($_GET['price']) : 10.98;
-        $pkr    = isset($_GET['pkr']) && is_numeric($_GET['pkr']) ? floatval($_GET['pkr']) : (isset($_GET['price']) ? round(floatval($_GET['price']) * 280) : round($price * 280));
+        $pkr    = isset($_GET['pkr']) ? floatval($_GET['pkr']) : (isset($_GET['price']) ? round(floatval($_GET['price']) * 280) : 0);
 
         if (isset($_GET['gnb_buy_domain']) && !empty($_GET['gnb_buy_domain'])) {
             $domain = sanitize_text_field($_GET['gnb_buy_domain']);

@@ -84,7 +84,20 @@ export const CheckoutPortal: React.FC = () => {
     const order_key = params.get('order_key') || '';
     const timestampStr = params.get('timestamp');
     const signature = params.get('signature');
-    const return_url = params.get('return_url') || '';
+    let rawReturnUrl = params.get('return_url') || '';
+    try {
+      if (rawReturnUrl.includes('%3A') || rawReturnUrl.includes('%2F')) {
+        rawReturnUrl = decodeURIComponent(rawReturnUrl);
+      }
+    } catch {
+      // no-op
+    }
+
+    const defaultStoreBase = 'https://gnbmentor.com';
+    const safeReturnUrl =
+      rawReturnUrl && rawReturnUrl.startsWith('http')
+        ? rawReturnUrl
+        : `${defaultStoreBase}/checkout/order-received/${order_id || '1084'}/?key=${order_key || ''}&payment_status=success`;
 
     // Check if returning from a 3D-Secure Stripe redirect
     const redirectPaymentIntent = params.get('payment_intent');
@@ -102,7 +115,7 @@ export const CheckoutPortal: React.FC = () => {
         order_key,
         timestamp: timestampStr ? parseInt(timestampStr, 10) : undefined,
         signature: signature || undefined,
-        return_url: return_url || undefined,
+        return_url: safeReturnUrl,
       };
       setOrder(parsedOrder);
     } else {
@@ -114,6 +127,7 @@ export const CheckoutPortal: React.FC = () => {
         customer_email: 'customer@example.com',
         order_key: 'wc_order_demo',
         timestamp: Math.floor(Date.now() / 1000),
+        return_url: safeReturnUrl,
       };
       setOrder(parsedOrder);
     }
@@ -153,6 +167,7 @@ export const CheckoutPortal: React.FC = () => {
             customer_name: orderData.customer_name,
             customer_email: orderData.customer_email,
             order_key: orderData.order_key,
+            return_url: orderData.return_url,
           }),
         });
 
@@ -206,10 +221,18 @@ export const CheckoutPortal: React.FC = () => {
               pr.on('paymentmethod', async (ev) => {
                 setIsProcessing(true);
                 try {
+                  const effectiveReturnUrl =
+                    orderData.return_url && orderData.return_url.startsWith('http')
+                      ? orderData.return_url
+                      : `https://gnbmentor.com/checkout/order-received/${orderData.order_id}/?key=${orderData.order_key || ''}&payment_status=success`;
+
                   const { error: confirmErr, paymentIntent } = await stripe.confirmCardPayment(
                     intentData.clientSecret,
-                    { payment_method: ev.paymentMethod.id },
-                    { handleActions: false }
+                    {
+                      payment_method: ev.paymentMethod.id,
+                      return_url: effectiveReturnUrl,
+                    },
+                    { handleActions: true }
                   );
 
                   if (confirmErr) {
@@ -443,11 +466,17 @@ export const CheckoutPortal: React.FC = () => {
               payment_intent_id: clientSecret ? clientSecret.split('_secret')[0] : undefined,
               amount: gpayFinalAmount,
               currency: order.currency,
+              return_url: order.return_url,
             }),
           });
 
           const confirmData = await confirmRes.json();
           if (!confirmRes.ok) throw new Error(confirmData.error || 'Failed to authorize Google Pay charge');
+
+          if (confirmData.requires_action && confirmData.redirect_url) {
+            window.location.href = confirmData.redirect_url;
+            return;
+          }
 
           setTransactionId(confirmData.transaction_id);
           setPaymentStatus('succeeded');
@@ -514,9 +543,11 @@ export const CheckoutPortal: React.FC = () => {
 
     try {
       if (stripeObj && elements) {
+        const storeBase = (config?.storeDomain || 'https://gnbmentor.com').replace(/\/$/, '');
         const returnUrl =
-          order.return_url ||
-          `https://gnbmentor.com/checkout/order-received/${order.order_id}/?key=${order.order_key || ''}&payment_status=success`;
+          order.return_url && order.return_url.startsWith('http')
+            ? order.return_url
+            : `${storeBase}/checkout/order-received/${order.order_id}/?key=${order.order_key || ''}&payment_status=success`;
 
         const { error, paymentIntent } = await stripeObj.confirmPayment({
           elements,
