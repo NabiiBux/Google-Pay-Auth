@@ -79,6 +79,101 @@ const GOOGLE_PAY_ENV = process.env.GOOGLE_PAY_ENV || 'PRODUCTION';
 const PORTAL_URL = process.env.PORTAL_URL || 'https://portal.gnbmentor.com';
 
 /**
+ * Domain Pricing Margin & Currency Configuration
+ * Supports margin percentage from any standard env var variation
+ */
+function getDomainMarginPercent(): number {
+  const raw =
+    process.env.DOMAIN_MARGIN_PERCENT ||
+    process.env.DOMAIN_MARGIN_PERCENTAGE ||
+    process.env.MARGIN_PERCENTAGE ||
+    process.env.MARGIN_PERCENT ||
+    process.env.DOMAIN_MARGIN ||
+    process.env.DOMAIN_PROFIT_MARGIN ||
+    process.env.NAMECHEAP_MARGIN_PERCENT ||
+    '0';
+  const val = parseFloat(raw);
+  return isNaN(val) || val < 0 ? 0 : val;
+}
+
+function getDomainFixedMarkup(): number {
+  const raw =
+    process.env.DOMAIN_FIXED_MARKUP ||
+    process.env.DOMAIN_MARGIN_FIXED_USD ||
+    process.env.DOMAIN_MARKUP_USD ||
+    '0';
+  const val = parseFloat(raw);
+  return isNaN(val) || val < 0 ? 0 : val;
+}
+
+function getUsdToPkrRate(): number {
+  const raw =
+    process.env.USD_TO_PKR_RATE ||
+    process.env.PKR_EXCHANGE_RATE ||
+    process.env.USD_PKR_RATE ||
+    '280';
+  const val = parseFloat(raw);
+  return isNaN(val) || val <= 0 ? 280 : val;
+}
+
+function calculateDomainPrices(rawUsdCost: number) {
+  const marginPercent = getDomainMarginPercent();
+  const fixedMarkup = getDomainFixedMarkup();
+  const usdToPkr = getUsdToPkrRate();
+
+  // Price = Namecheap actual cost * (1 + margin / 100) + fixed markup
+  const markedUpUsd = rawUsdCost * (1 + marginPercent / 100) + fixedMarkup;
+  const formattedUsdPrice = markedUpUsd.toFixed(2);
+  const pkrPrice = Math.round(markedUpUsd * usdToPkr);
+
+  return {
+    rawCost: rawUsdCost.toFixed(2),
+    marginPercent,
+    fixedMarkup,
+    usdPrice: formattedUsdPrice,
+    pkrPrice,
+    usdToPkr,
+  };
+}
+
+/**
+ * Stripe Checkout Tax Configuration
+ * Supports sales tax percentage, automatic tax, and Stripe tax rate IDs
+ */
+function getStripeTaxPercent(): number {
+  const raw =
+    process.env.STRIPE_TAX_PERCENT ||
+    process.env.STRIPE_TAX_PERCENTAGE ||
+    process.env.TAX_PERCENTAGE ||
+    process.env.TAX_PERCENT ||
+    process.env.STRIPE_TAX_RATE ||
+    process.env.TAX_RATE ||
+    '0';
+  const val = parseFloat(raw);
+  return isNaN(val) || val < 0 ? 0 : val;
+}
+
+function isAutomaticTaxEnabled(): boolean {
+  return (
+    process.env.STRIPE_AUTOMATIC_TAX === 'true' ||
+    process.env.ENABLE_STRIPE_TAX === 'true'
+  );
+}
+
+function getStripeTaxRateId(): string {
+  return (
+    process.env.STRIPE_TAX_RATE_ID ||
+    process.env.TAX_RATE_ID ||
+    ''
+  ).trim();
+}
+
+function getStripeTaxBehavior(): 'exclusive' | 'inclusive' {
+  const raw = (process.env.STRIPE_TAX_BEHAVIOR || process.env.TAX_BEHAVIOR || 'exclusive').toLowerCase();
+  return raw === 'inclusive' ? 'inclusive' : 'exclusive';
+}
+
+/**
  * Utility: Compute HMAC SHA256 signature for order parameters
  * Payload format: "order_id|amount|currency|timestamp"
  */
@@ -295,12 +390,21 @@ app.get('/api/config', (_req, res) => {
     googlePayMerchantName: GOOGLE_PAY_MERCHANT_NAME,
     googlePayEnv: GOOGLE_PAY_ENV,
     portalUrl: PORTAL_URL,
+    // Owner margin and tax preferences from env
+    domainMarginPercent: getDomainMarginPercent(),
+    domainFixedMarkup: getDomainFixedMarkup(),
+    usdToPkrRate: getUsdToPkrRate(),
+    taxPercent: getStripeTaxPercent(),
+    taxBehavior: getStripeTaxBehavior(),
+    automaticTaxEnabled: isAutomaticTaxEnabled(),
+    hasTaxRateId: Boolean(getStripeTaxRateId()),
   });
 });
 
 /**
  * GET /api/domains/search
  * Real-time domain search via Namecheap Reseller API
+ * Dynamically applies margin percentage configured in env to Namecheap wholesale prices
  */
 app.get(['/api/domains/search', '/api/domains/search/'], async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
@@ -336,19 +440,22 @@ app.get(['/api/domains/search', '/api/domains/search/'], async (req, res) => {
       parsedUsdPrice = fallbackPrices[tld] || 10.98;
     }
 
-    const formattedUsdPrice = parsedUsdPrice.toFixed(2);
-    const pkrPrice = Math.round(parsedUsdPrice * 280);
+    // Calculate retail prices applying owner profit margin from env
+    const pricing = calculateDomainPrices(parsedUsdPrice);
 
     const storeBase = WC_STORE_URL.replace(/\/$/, '');
-    const checkoutUrl = `${storeBase}/?gnb_buy_domain=${encodeURIComponent(result.domain)}&price=${encodeURIComponent(formattedUsdPrice)}&pkr=${encodeURIComponent(String(pkrPrice))}`;
+    const checkoutUrl = `${storeBase}/?gnb_buy_domain=${encodeURIComponent(result.domain)}&price=${encodeURIComponent(pricing.usdPrice)}&pkr=${encodeURIComponent(String(pricing.pkrPrice))}`;
 
     return res.json({
       success: true,
       domain: result.domain,
       available: result.available,
-      price: formattedUsdPrice,
+      price: pricing.usdPrice,
+      rawCost: pricing.rawCost,
+      marginPercent: pricing.marginPercent,
+      fixedMarkup: pricing.fixedMarkup,
       currency: result.currency || 'USD',
-      pkrPrice,
+      pkrPrice: pricing.pkrPrice,
       isPremium: Boolean(result.isPremium),
       message:
         result.message ||
@@ -369,23 +476,39 @@ app.get(['/api/domains/search', '/api/domains/search/'], async (req, res) => {
 
 /**
  * GET /api/domains/pricing
- * Standard TLD pricing table
+ * Standard TLD pricing table with owner margin applied
  */
 app.get('/api/domains/pricing', (_req, res) => {
-  const tldPricing = [
-    { tld: '.com', priceUsd: 10.98, pricePkr: Math.round(10.98 * 280), popular: true },
-    { tld: '.net', priceUsd: 12.98, pricePkr: Math.round(12.98 * 280), popular: false },
-    { tld: '.org', priceUsd: 11.98, pricePkr: Math.round(11.98 * 280), popular: false },
-    { tld: '.co', priceUsd: 24.98, pricePkr: Math.round(24.98 * 280), popular: false },
-    { tld: '.io', priceUsd: 38.98, pricePkr: Math.round(38.98 * 280), popular: true },
-    { tld: '.store', priceUsd: 1.47, pricePkr: Math.round(1.47 * 280), popular: true },
-    { tld: '.tech', priceUsd: 1.47, pricePkr: Math.round(1.47 * 280), popular: false },
-    { tld: '.shop', priceUsd: 1.47, pricePkr: Math.round(1.47 * 280), popular: true },
-    { tld: '.online', priceUsd: 1.47, pricePkr: Math.round(1.47 * 280), popular: false },
-    { tld: '.ai', priceUsd: 69.98, pricePkr: Math.round(69.98 * 280), popular: true },
-    { tld: '.pk', priceUsd: 14.50, pricePkr: Math.round(14.5 * 280), popular: true },
+  const baseTldPricing = [
+    { tld: '.com', costUsd: 10.98, popular: true },
+    { tld: '.net', costUsd: 12.98, popular: false },
+    { tld: '.org', costUsd: 11.98, popular: false },
+    { tld: '.co', costUsd: 24.98, popular: false },
+    { tld: '.io', costUsd: 38.98, popular: true },
+    { tld: '.store', costUsd: 1.47, popular: true },
+    { tld: '.tech', costUsd: 1.47, popular: false },
+    { tld: '.shop', costUsd: 1.47, popular: true },
+    { tld: '.online', costUsd: 1.47, popular: false },
+    { tld: '.ai', costUsd: 69.98, popular: true },
+    { tld: '.pk', costUsd: 14.50, popular: true },
   ];
-  return res.json({ success: true, pricing: tldPricing });
+
+  const tldPricing = baseTldPricing.map((item) => {
+    const p = calculateDomainPrices(item.costUsd);
+    return {
+      tld: item.tld,
+      priceUsd: parseFloat(p.usdPrice),
+      pricePkr: p.pkrPrice,
+      rawCost: item.costUsd,
+      popular: item.popular,
+    };
+  });
+
+  return res.json({
+    success: true,
+    marginPercent: getDomainMarginPercent(),
+    pricing: tldPricing,
+  });
 });
 
 /**
@@ -501,7 +624,20 @@ app.post('/api/create-payment-intent', async (req, res) => {
       return res.status(400).json({ error: 'Invalid order amount' });
     }
 
-    const amountInCents = Math.round(numericAmount * 100);
+    const taxPercent = getStripeTaxPercent();
+    const taxBehavior = getStripeTaxBehavior();
+
+    // Calculate tax if configured
+    let finalAmount = numericAmount;
+    let taxAmount = 0;
+    if (taxPercent > 0 && taxBehavior === 'exclusive') {
+      taxAmount = Number(((numericAmount * taxPercent) / 100).toFixed(2));
+      finalAmount = Number((numericAmount + taxAmount).toFixed(2));
+    } else if (taxPercent > 0 && taxBehavior === 'inclusive') {
+      taxAmount = Number((numericAmount - numericAmount / (1 + taxPercent / 100)).toFixed(2));
+    }
+
+    const amountInCents = Math.round(finalAmount * 100);
 
     if (stripe) {
       try {
@@ -518,6 +654,11 @@ app.post('/api/create-payment-intent', async (req, res) => {
             customer_email: String(customer_email || ''),
             source: 'pay.gnbmentor.com',
             parent_domain: WC_STORE_URL,
+            subtotal: String(numericAmount.toFixed(2)),
+            tax_percent: String(taxPercent),
+            tax_amount: String(taxAmount.toFixed(2)),
+            tax_behavior: taxBehavior,
+            total_charged: String(finalAmount.toFixed(2)),
           },
           receipt_email: customer_email || undefined,
           description: `GNB Mentor Order #${order_id}`,
@@ -526,7 +667,10 @@ app.post('/api/create-payment-intent', async (req, res) => {
         return res.json({
           clientSecret: paymentIntent.client_secret,
           id: paymentIntent.id,
-          amount: numericAmount,
+          subtotal: numericAmount,
+          taxPercent,
+          taxAmount,
+          amount: finalAmount,
           currency: currency.toUpperCase(),
           isMock: false,
         });
@@ -539,7 +683,10 @@ app.post('/api/create-payment-intent', async (req, res) => {
     return res.json({
       clientSecret: `${mockIntentId}_secret_test`,
       id: mockIntentId,
-      amount: numericAmount,
+      subtotal: numericAmount,
+      taxPercent,
+      taxAmount,
+      amount: finalAmount,
       currency: currency.toUpperCase(),
       isMock: true,
     });
@@ -584,38 +731,125 @@ app.post('/api/create-checkout-session', async (req, res) => {
 
     const cancelUrl = `https://pay.gnbmentor.com/checkout?order_id=${order_id}&amount=${amount}&currency=${currency}&order_key=${order_key || ''}`;
 
+    const taxPercent = getStripeTaxPercent();
+    const isAutoTax = isAutomaticTaxEnabled();
+    const taxRateId = getStripeTaxRateId();
+
     if (stripe) {
       try {
-        const session = await stripe.checkout.sessions.create({
-          line_items: [
-            {
-              price_data: {
-                currency: currency.toLowerCase(),
-                product_data: {
-                  name: `GNB Mentor Order #${order_id}`,
-                },
-                unit_amount: amountInCents,
-              },
-              quantity: 1,
+        const lineItem: any = {
+          price_data: {
+            currency: currency.toLowerCase(),
+            product_data: {
+              name: `GNB Mentor Order #${order_id}`,
             },
-          ],
+            unit_amount: amountInCents,
+          },
+          quantity: 1,
+        };
+
+        if (taxRateId) {
+          lineItem.tax_rates = [taxRateId];
+        }
+
+        const line_items: any[] = [lineItem];
+
+        // If a fixed sales tax/VAT percentage is set in env, add as an itemized tax line
+        if (taxPercent > 0 && !taxRateId && !isAutoTax) {
+          const taxInCents = Math.round(amountInCents * (taxPercent / 100));
+          line_items.push({
+            price_data: {
+              currency: currency.toLowerCase(),
+              product_data: {
+                name: `Sales Tax / VAT (${taxPercent}%)`,
+                description: `Applicable taxes for Order #${order_id}`,
+              },
+              unit_amount: taxInCents,
+            },
+            quantity: 1,
+          });
+        }
+
+        const sessionPayload: any = {
+          line_items,
           mode: 'payment',
           customer_email: customer_email || undefined,
           metadata: {
             order_id: String(order_id),
             order_key: String(order_key || ''),
             customer_name: String(customer_name || ''),
+            tax_percent: String(taxPercent),
           },
           success_url: successUrl,
           cancel_url: cancelUrl,
-        });
+        };
+
+        if (isAutoTax) {
+          sessionPayload.automatic_tax = { enabled: true };
+          sessionPayload.tax_id_collection = { enabled: true };
+        }
+
+        const session = await stripe.checkout.sessions.create(sessionPayload);
 
         return res.json({
           url: session.url,
           sessionId: session.id,
+          taxPercent,
+          automaticTax: isAutoTax,
         });
       } catch (stripeErr: any) {
         console.warn('[STRIPE] Checkout session note:', stripeErr.message);
+
+        // Graceful fallback if Stripe automatic tax is not enabled in account dashboard
+        if (isAutoTax && stripeErr.message?.includes('automatic_tax')) {
+          try {
+            const fallbackSession = await stripe.checkout.sessions.create({
+              line_items: [
+                {
+                  price_data: {
+                    currency: currency.toLowerCase(),
+                    product_data: {
+                      name: `GNB Mentor Order #${order_id}`,
+                    },
+                    unit_amount: amountInCents,
+                  },
+                  quantity: 1,
+                },
+                ...(taxPercent > 0
+                  ? [
+                      {
+                        price_data: {
+                          currency: currency.toLowerCase(),
+                          product_data: {
+                            name: `Sales Tax / VAT (${taxPercent}%)`,
+                          },
+                          unit_amount: Math.round(amountInCents * (taxPercent / 100)),
+                        },
+                        quantity: 1,
+                      },
+                    ]
+                  : []),
+              ],
+              mode: 'payment',
+              customer_email: customer_email || undefined,
+              metadata: {
+                order_id: String(order_id),
+                order_key: String(order_key || ''),
+                customer_name: String(customer_name || ''),
+                tax_percent: String(taxPercent),
+              },
+              success_url: successUrl,
+              cancel_url: cancelUrl,
+            });
+            return res.json({
+              url: fallbackSession.url,
+              sessionId: fallbackSession.id,
+              taxPercent,
+            });
+          } catch (fbErr: any) {
+            console.warn('[STRIPE] Fallback checkout note:', fbErr.message);
+          }
+        }
       }
     }
 
@@ -624,6 +858,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
       url: simSuccessUrl,
       sessionId: `cs_sim_${Date.now()}`,
       isMock: true,
+      taxPercent,
     });
   } catch (error: any) {
     return res.status(500).json({

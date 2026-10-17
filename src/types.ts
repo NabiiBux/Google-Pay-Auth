@@ -29,6 +29,12 @@ export interface AppConfig {
   googlePayMerchantName?: string;
   googlePayEnv?: string;
   portalUrl?: string;
+  domainMarginPercent?: number;
+  domainFixedMarkup?: number;
+  usdToPkrRate?: number;
+  taxPercent?: number;
+  taxBehavior?: 'exclusive' | 'inclusive';
+  automaticTaxEnabled?: boolean;
 }
 
 export interface WebhookSimulationLog {
@@ -44,6 +50,9 @@ export interface DomainSearchResult {
   domain: string;
   available: boolean;
   price?: string;
+  rawCost?: string;
+  marginPercent?: number;
+  pkrPrice?: number;
   currency?: string;
   isPremium?: boolean;
 }

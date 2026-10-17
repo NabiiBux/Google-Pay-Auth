@@ -179,14 +179,20 @@ export const CheckoutPortal: React.FC = () => {
           setStripeObj(stripe);
 
           if (stripe) {
-            // Setup Stripe PaymentRequest fallback for Google Pay
+            // Setup Stripe PaymentRequest fallback for Google Pay (accounting for tax if configured)
+            const finalChargedAmount =
+              intentData?.amount ||
+              (cfg.taxPercent && cfg.taxPercent > 0 && cfg.taxBehavior !== 'inclusive'
+                ? Number((orderData.amount * (1 + cfg.taxPercent / 100)).toFixed(2))
+                : orderData.amount);
+
             try {
               const pr = stripe.paymentRequest({
               country: 'US',
               currency: orderData.currency.toLowerCase(),
               total: {
                 label: `GNB Mentor Order #${orderData.order_id}`,
-                amount: Math.round(orderData.amount * 100),
+                amount: Math.round(finalChargedAmount * 100),
               },
               requestPayerName: true,
               requestPayerEmail: true,
@@ -404,13 +410,18 @@ export const CheckoutPortal: React.FC = () => {
           merchantInfo.merchantId = config.googlePayMerchantId;
         }
 
+        const gpayFinalAmount =
+          config?.taxPercent && config.taxPercent > 0 && config.taxBehavior !== 'inclusive'
+            ? Number((order.amount * (1 + config.taxPercent / 100)).toFixed(2))
+            : order.amount;
+
         const paymentDataRequest = {
           apiVersion: 2,
           apiVersionMinor: 0,
           allowedPaymentMethods: [cardPaymentMethod],
           transactionInfo: {
             totalPriceStatus: 'FINAL',
-            totalPrice: order.amount.toFixed(2),
+            totalPrice: gpayFinalAmount.toFixed(2),
             currencyCode: order.currency.toUpperCase(),
             countryCode: 'US',
           },
@@ -430,7 +441,7 @@ export const CheckoutPortal: React.FC = () => {
               order_key: order.order_key,
               payment_data_token: rawToken,
               payment_intent_id: clientSecret ? clientSecret.split('_secret')[0] : undefined,
-              amount: order.amount,
+              amount: gpayFinalAmount,
               currency: order.currency,
             }),
           });
@@ -644,33 +655,60 @@ export const CheckoutPortal: React.FC = () => {
             </div>
 
             {/* Itemized Breakdown */}
-            <div className="py-4 space-y-2.5 text-xs">
-              <div className="flex justify-between text-slate-600">
-                <span>Subtotal</span>
-                <span className="font-mono tabular-nums font-medium text-slate-800">
-                  {order?.currency} {(order?.amount || 0).toFixed(2)}
-                </span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>Payment Processing</span>
-                <span className="font-medium text-emerald-600">Free</span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>Tax & VAT</span>
-                <span className="font-medium text-slate-500">Included</span>
-              </div>
-              <div className="pt-3 border-t border-slate-100 flex justify-between items-baseline">
-                <div>
-                  <span className="text-sm font-bold text-slate-900 block">Total Due</span>
-                  <span className="text-[11px] text-slate-400">All fees included</span>
+            {(() => {
+              const taxPercent = config?.taxPercent || 0;
+              const isExclusiveTax = config?.taxBehavior !== 'inclusive';
+              const subtotal = order?.amount || 0;
+              const taxAmount =
+                taxPercent > 0 && isExclusiveTax
+                  ? Number(((subtotal * taxPercent) / 100).toFixed(2))
+                  : 0;
+              const totalDue = isExclusiveTax ? subtotal + taxAmount : subtotal;
+
+              return (
+                <div className="py-4 space-y-2.5 text-xs">
+                  <div className="flex justify-between text-slate-600">
+                    <span>Subtotal</span>
+                    <span className="font-mono tabular-nums font-medium text-slate-800">
+                      {order?.currency} {subtotal.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>Payment Processing</span>
+                    <span className="font-medium text-emerald-600">Free</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>
+                      {taxPercent > 0 ? `Tax & VAT (${taxPercent}%)` : 'Tax & VAT'}
+                    </span>
+                    <span className="font-mono tabular-nums font-medium text-slate-700">
+                      {taxPercent > 0
+                        ? isExclusiveTax
+                          ? `+${order?.currency} ${taxAmount.toFixed(2)}`
+                          : `Included (${taxPercent}%)`
+                        : config?.automaticTaxEnabled
+                        ? 'Calculated at checkout'
+                        : 'Included'}
+                    </span>
+                  </div>
+                  <div className="pt-3 border-t border-slate-100 flex justify-between items-baseline">
+                    <div>
+                      <span className="text-sm font-bold text-slate-900 block">Total Due</span>
+                      <span className="text-[11px] text-slate-400">
+                        {taxPercent > 0 && isExclusiveTax
+                          ? `Includes ${taxPercent}% applicable taxes`
+                          : 'All fees included'}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-mono text-2xl sm:text-3xl font-extrabold text-slate-950 tracking-tight tabular-nums">
+                        {order?.currency} {totalDue.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <span className="font-mono text-2xl sm:text-3xl font-extrabold text-slate-950 tracking-tight tabular-nums">
-                    {order?.currency} {(order?.amount || 0).toFixed(2)}
-                  </span>
-                </div>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* Customer Details */}
             {order?.customer_email && (
