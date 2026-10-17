@@ -359,16 +359,18 @@ app.get('/api/health', (_req, res) => {
 });
 
 /**
- * GET /download/gnbmentor-pay.zip
+ * GET /download/gnbmentor-pay.zip and /gnbmentor-pay.zip
  */
-app.get('/download/gnbmentor-pay.zip', (_req, res) => {
+const sendPluginZip = (_req: express.Request, res: express.Response) => {
   const zipFile = path.resolve(__dirname, 'public', 'gnbmentor-pay.zip');
   if (fs.existsSync(zipFile)) {
     res.download(zipFile, 'gnbmentor-pay.zip');
   } else {
     res.download(path.resolve(__dirname, 'deploy', 'gnbmentor-wc-gateway.php'));
   }
-});
+};
+app.get('/download/gnbmentor-pay.zip', sendPluginZip);
+app.get('/gnbmentor-pay.zip', sendPluginZip);
 
 /**
  * GET /api/config

@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Play,
   FileText,
+  Download,
 } from 'lucide-react';
 
 interface IntegrationHubProps {
@@ -160,17 +161,36 @@ export const IntegrationHub: React.FC<IntegrationHubProps> = ({
       {activeTab === 'woocommerce' && (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8">
-            <h2 className="text-lg font-bold text-slate-900">
-              1. Drop-in WordPress / WooCommerce Plugin
-            </h2>
-            <p className="text-sm text-slate-600 mt-1 leading-relaxed">
-              We have generated a standalone WooCommerce payment gateway plugin located at{' '}
-              <code className="text-xs bg-slate-100 text-slate-800 px-2 py-0.5 rounded font-mono">
-                deploy/gnbmentor-wc-gateway.php
-              </code>
-              . It creates a seamless checkout option on <strong>gnbmentor.com</strong> that securely signs order
-              details and redirects the student to <strong>pay.gnbmentor.com</strong>.
-            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  1. Drop-in WordPress / WooCommerce Plugin
+                </h2>
+                <p className="text-sm text-slate-600 mt-1 leading-relaxed">
+                  Standalone WooCommerce payment gateway plugin located at{' '}
+                  <code className="text-xs bg-slate-100 text-slate-800 px-2 py-0.5 rounded font-mono">
+                    deploy/gnbmentor-wc-gateway.php
+                  </code>
+                  . Features automated 1-click domain checkout, dynamic PKR currency conversion, and secure HMAC signing.
+                </p>
+              </div>
+              <a
+                href="/download/gnbmentor-pay.zip"
+                download="gnbmentor-pay.zip"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-colors whitespace-nowrap"
+              >
+                <Download className="w-4 h-4" />
+                <span>Download gnbmentor-pay.zip</span>
+              </a>
+            </div>
+
+            <div className="mt-4 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-start gap-2.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <div>
+                <strong className="font-semibold text-emerald-900">PKR Currency Fix & Margin Active:</strong>{' '}
+                When checkout is initiated from Namecheap domain search, the backend sends retail prices marked up with your margin (e.g. <code className="bg-emerald-100 px-1 py-0.5 rounded font-mono text-emerald-900">&price=0.98&pkr=274</code>). The plugin checks <code className="bg-emerald-100 px-1 py-0.5 rounded font-mono text-emerald-900">get_woocommerce_currency() === 'PKR'</code> and charges the exact PKR price directly!
+              </div>
+            </div>
 
             <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80">
