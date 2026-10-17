@@ -371,6 +371,12 @@ const sendPluginZip = (_req: express.Request, res: express.Response) => {
 };
 app.get('/download/gnbmentor-pay.zip', sendPluginZip);
 app.get('/gnbmentor-pay.zip', sendPluginZip);
+app.get(['/gnbmentor-wc-gateway.php', '/download/gnbmentor-wc-gateway.php'], (_req, res) => {
+  res.sendFile(path.resolve(__dirname, 'deploy', 'gnbmentor-wc-gateway.php'));
+});
+app.get(['/gnbmentor-pay.php', '/download/gnbmentor-pay.php'], (_req, res) => {
+  res.sendFile(path.resolve(__dirname, 'deploy', 'gnbmentor-pay.php'));
+});
 
 /**
  * GET /api/config
